@@ -2,7 +2,7 @@
 Copyright (c) 2013-2018 InfluxData Inc.
 this code is originally from https://github.com/influxdata/influxdb/blob/1.8/cmd/influx_inspect/export/export.go
 
-2023.03.08 
+2023.03.08 Changed
 Remove function writeWALFile
 Remove write data to local file
 Add insert values into openGemini
