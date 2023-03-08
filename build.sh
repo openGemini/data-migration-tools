@@ -1,3 +1,3 @@
 #!/bin/bash
 go mod tidy
-go build -o dataMigrate ./
+go build -o dataMigrate ./src/
