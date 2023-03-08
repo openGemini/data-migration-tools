@@ -7,8 +7,9 @@ The dataMigrate directly reads data from the TSM file of InfluxDB and writes the
 ## quick start
 
 ### requirements
-go version >1.16
-**Setting Environment Variables**
+Go version >1.16  
+
+Setting Environment Variables
 ```
 > export GOPATH=/path/to/dir
 > export GO111MODULE=on
