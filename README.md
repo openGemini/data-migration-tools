@@ -35,12 +35,12 @@ Usage: dataMigrate [flags]
   -end string
     	Optional: the end time to read (RFC3339 format)
   -from string
-    	Data storage path (default "/tmp/openGemini/data")
+    	Data storage path (default "/var/lib/Influxdb/data")
   -retention string
     	Optional: the retention policy to read (requires -database)
   -start string
     	Optional: the start time to read (RFC3339 format)
   -to string
-    	Destination host to write data to (default "127.0.0.1:8086")
+    	Destination host to write data to (default "127.0.0.1:8086",which is the openGemini service default address)
 ```
 **Welcome to add more features.**
