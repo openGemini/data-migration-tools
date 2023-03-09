@@ -59,7 +59,7 @@ func NewDataMigrateCommand() *DataMigrateCommand {
 // Run executes the command.
 func (cmd *DataMigrateCommand) Run(args ...string) error {
     var start, end string
-    flag.StringVar(&cmd.dataDir, "from", "/tmp/openGemini/data", "Data storage path")
+    flag.StringVar(&cmd.dataDir, "from", "/var/lib/influxdb/data", "Data storage path")
     flag.StringVar(&cmd.out, "to", "127.0.0.1:8086", "Destination host to write data to")
     flag.StringVar(&cmd.database, "database", "", "Optional: the database to read")
     flag.StringVar(&cmd.retentionPolicy, "retention", "", "Optional: the retention policy to read (requires -database)")
