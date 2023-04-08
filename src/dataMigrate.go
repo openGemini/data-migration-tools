@@ -21,6 +21,7 @@ import (
     "sort"
     "strings"
     "time"
+    "bytes"
 
     "github.com/influxdata/influxdb/pkg/escape"
     "github.com/influxdata/influxdb/tsdb/engine/tsm1"
@@ -178,6 +179,20 @@ func (cmd *DataMigrateCommand) writeTsmFiles(files []string) error {
     }
     return nil
 }
+func (cmd * DataMigrateCommand) formatespace (buf string) string {
+    var b bytes.Buffer
+    i := 0
+    for i < len(buf) {
+        if buf[i] == ' ' {
+            b.WriteByte('\\')
+            b.WriteByte(' ')
+        } else {
+	    b.WriteByte(buf[i])
+        }
+	i++
+    }
+    return b.String()
+}
 
 func (cmd *DataMigrateCommand) writeValues(seriesKey []byte, field string, values []tsm1.Value) error {
     c, err := client.NewHTTPClient(client.HTTPConfig{
@@ -203,7 +218,8 @@ func (cmd *DataMigrateCommand) writeValues(seriesKey []byte, field string, value
 	    continue
 	}
 	tag_key_values := strings.Split(key_value,"=")
-	tags[tag_key_values[0]]=tag_key_values[1]
+	tag_key_value := cmd.formatespace(tag_key_values[1])
+	tags[tag_key_values[0]]=tag_key_value
     }
     
     fields := map[string]interface{}{}
