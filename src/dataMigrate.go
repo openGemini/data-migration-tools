@@ -194,21 +194,9 @@ func (cmd * DataMigrateCommand) formatespace (buf string) string {
     return b.String()
 }
 
-func (cmd *DataMigrateCommand) writeValues(seriesKey []byte, field string, values []tsm1.Value) error {
-    c, err := client.NewHTTPClient(client.HTTPConfig{
-	Addr: "http://"+cmd.out,
-    })
-    if err != nil {
-	fmt.Println("Error creating openGemini Client: ", err.Error())
-    }
-    defer c.Close()
-
+func (cmd *DataMigrateCommand) writeValues(c client.Client, seriesKey []byte, field string, values []tsm1.Value) error {
     sk := string(seriesKey)
     //fmt.Println(sk,field)
-    bp, _ := client.NewBatchPoints(client.BatchPointsConfig{
-	Database: cmd.database,
-	Precision: "ns",
-    })
 
     tags := map[string]string{}
     vs := strings.Split(sk,",")
@@ -225,10 +213,29 @@ func (cmd *DataMigrateCommand) writeValues(seriesKey []byte, field string, value
     fields := map[string]interface{}{}
     count := 0;
     all := len(values)
+    var bp client.BatchPoints
+    flag := true
     for i, value := range values {
+	if flag {
+	    bp, _ = client.NewBatchPoints(client.BatchPointsConfig{
+	        Database: cmd.database,
+	        Precision: "ns",
+	    })
+	    flag = false
+	}
 	ts := value.UnixNano()
-	if (ts < cmd.startTime) || (ts > cmd.endTime) {
+	if (ts < cmd.startTime) {
 	    continue
+	}
+	if ts > cmd.endTime {
+	    if count != 0 {
+	    	err := c.Write(bp)
+	    	if  err != nil {
+		    fmt.Fprintf(cmd.Stdout,"insert error: %v",err)
+		    return err
+	    	}
+    	    }	
+	    break
 	}
 	fields[field]=value.Value()
 	pt, err := client.NewPoint(measurement, tags, fields, time.Unix(0,ts))
@@ -237,15 +244,16 @@ func (cmd *DataMigrateCommand) writeValues(seriesKey []byte, field string, value
 	}
 	bp.AddPoint(pt)
 	count = count + 1
-	if( count == BATCHSIZE ){
+	if count == BATCHSIZE {
 	    err := c.Write(bp)
 	    if  err != nil {
 		fmt.Fprintf(cmd.Stdout,"insert error: %v",err)
 		return err
 	    }
+	    flag = true
 	    count = 0
 	}
-	if i == all-1 {
+	if i == all-1 && count != 0 {
 	    err := c.Write(bp)
 	    if err != nil {
 		fmt.Fprintf(cmd.Stdout,"insert error: %v",err)
@@ -279,6 +287,14 @@ func (cmd *DataMigrateCommand) ReadTSMFile(tsmFilePath string) error {
 	return nil
     }
 
+    c, err := client.NewHTTPClient(client.HTTPConfig{
+	Addr: "http://"+cmd.out,
+    })
+    if err != nil {
+	fmt.Println("Error creating openGemini Client: ", err.Error())
+    }
+    defer c.Close()
+
     for i := 0; i < r.KeyCount(); i++ {
 	key, _ := r.KeyAt(i)
 	values, err := r.ReadAll(key)
@@ -289,7 +305,7 @@ func (cmd *DataMigrateCommand) ReadTSMFile(tsmFilePath string) error {
 	measurement, field := tsm1.SeriesAndFieldFromCompositeKey(key)
 	field = escape.Bytes(field)
 
-	if err := cmd.writeValues( measurement, string(field), values); err != nil {
+	if err := cmd.writeValues(c, measurement, string(field), values); err != nil {
 	    // An error from writeValues indicates an IO error, which should be returned.
 	    return err
 	}
