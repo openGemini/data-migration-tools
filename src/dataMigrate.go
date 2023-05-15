@@ -23,12 +23,25 @@ import (
 	"strings"
 	"time"
 
-	"github.com/influxdata/influxdb/pkg/escape"
 	"github.com/influxdata/influxdb/tsdb/engine/tsm1"
 	client "github.com/influxdata/influxdb1-client/v2"
 )
 
 const BATCHSIZE = 200
+
+// escape set for tags
+type escapeSet struct {
+	k   [1]byte
+	esc [2]byte
+}
+
+var (
+	tagEscapeCodes = [...]escapeSet{
+		{k: [1]byte{','}, esc: [2]byte{'\\', ','}},
+		{k: [1]byte{' '}, esc: [2]byte{'\\', ' '}},
+		{k: [1]byte{'='}, esc: [2]byte{'\\', '='}},
+	}
+)
 
 type DataMigrateCommand struct {
 	// Standard input/output, overridden for testing.
@@ -239,16 +252,9 @@ func (cmd *DataMigrateCommand) writeCurrentFiles() error {
 	defer c.Close()
 
 	for series, field := range cmd.serieskeys {
-		tags := map[string]string{}
-		vs := strings.Split(series, ",")
-		measurement := vs[0]
-		for i, key_value := range vs {
-			if i == 0 {
-				continue
-			}
-			tag_key_values := strings.Split(key_value, "=")
-			tag_key_value := cmd.formatespace(tag_key_values[1])
-			tags[tag_key_values[0]] = tag_key_value
+		measurement, tags, err := cmd.splitMeasurementAndTag(series)
+		if err != nil {
+			return err
 		}
 
 		// construct Scanner
@@ -270,8 +276,7 @@ func (cmd *DataMigrateCommand) writeCurrentFiles() error {
 			if err := newCursor.init(cmd.startTime); err != nil {
 				return err
 			}
-			escape_field := string(escape.Bytes([]byte(f)))
-			scanner.fields[escape_field] = newCursor
+			scanner.fields[f] = newCursor
 		}
 		if err := scanner.writeBatches(c, cmd); err != nil {
 			return err
@@ -335,17 +340,81 @@ func (cmd *DataMigrateCommand) releaseTSMReaders() {
 	cmd.serieskeys = map[string]map[string]struct{}{}
 }
 
-func (cmd *DataMigrateCommand) formatespace(buf string) string {
-	var b bytes.Buffer
-	i := 0
-	for i < len(buf) {
-		if buf[i] == ' ' {
-			b.WriteByte('\\')
-			b.WriteByte(' ')
-		} else {
-			b.WriteByte(buf[i])
+type parseErr struct {
+	err string
+}
+
+func (err parseErr) Error() string {
+	return err.err
+}
+
+func (cmd *DataMigrateCommand) splitMeasurementAndTag(buf string) (measurement string, tags map[string]string, err error) {
+	buf_runes := []rune(buf)
+	splits := make([][]rune, 0)
+	var buffer []rune
+	escaping := false
+	buf_runes = append(buf_runes, ',')
+	tags = make(map[string]string)
+	read := 0
+	for i, r := range buf_runes {
+		if !escaping && r == '\\' {
+			escaping = true
+			continue
 		}
-		i++
+		if escaping {
+			escaping = false
+			continue
+		}
+		if r == ',' {
+			buffer = make([]rune, i-read)
+			copy(buffer, buf_runes[read:i])
+			splits = append(splits, buffer)
+			read = i + 1
+		}
 	}
-	return b.String()
+	measurement = string(splits[0])
+	if len(measurement) <= 0 {
+		return "", nil, parseErr{"parse failed: measurement can not be nil"}
+	}
+	for i, kv := range splits {
+		if i == 0 {
+			continue
+		}
+		escaping := false
+		for i, r := range kv {
+			if !escaping && r == '\\' {
+				escaping = true
+				continue
+			}
+			if escaping {
+				escaping = false
+				continue
+			}
+			if r == '=' {
+				tagKey := string(kv[:i])
+				tagValue := string(kv[i+1:])
+				if len(tagKey) <= 0 || len(tagValue) <= 0 {
+					return "", nil, parseErr{"parse failed: empty tag key or tag value"}
+				}
+				tags[unescapeTag(tagKey)] = unescapeTag(tagValue)
+			}
+		}
+	}
+	err = nil
+	return
+}
+
+func unescapeTag(in string) string {
+	inb := []byte(in)
+	if bytes.IndexByte(inb, '\\') == -1 {
+		return in
+	}
+
+	for i := range tagEscapeCodes {
+		c := &tagEscapeCodes[i]
+		if bytes.IndexByte(inb, c.k[0]) != -1 {
+			inb = bytes.Replace(inb, c.esc[:], c.k[:], -1)
+		}
+	}
+	return string(inb)
 }
