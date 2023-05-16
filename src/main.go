@@ -13,42 +13,42 @@ limitations under the License.
 package main
 
 import (
-	"fmt"
-	"io"
-	"log"
-	"os"
+    "fmt"
+    "io"
+    "log"
+    "os"
 )
 
 func main() {
-	m := NewMain()
-	if err := m.Run(os.Args[1:]...); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
+    m := NewMain()
+    if err := m.Run(os.Args[1:]...); err != nil {
+        fmt.Fprintln(os.Stderr, err)
+        os.Exit(1)
+    }
 }
 
 type Main struct {
-	Logger *log.Logger
-	Stdin  io.Reader
-	Stdout io.Writer
-	Stderr io.Writer
+    Logger *log.Logger
+    Stdin  io.Reader
+    Stdout io.Writer
+    Stderr io.Writer
 }
 
 func NewMain() *Main {
-	return &Main{
-		Logger: log.New(os.Stderr, "[dataMigrate] ", log.LstdFlags),
-		Stdin:  os.Stdin,
-		Stdout: os.Stdout,
-		Stderr: os.Stderr,
-	}
+    return &Main{
+        Logger: log.New(os.Stderr, "[dataMigrate] ", log.LstdFlags),
+        Stdin:  os.Stdin,
+        Stdout: os.Stdout,
+        Stderr: os.Stderr,
+    }
 }
 
 func (m *Main) Run(args ...string) error {
-	if len(args) > 0 {
-		cmd := NewDataMigrateCommand()
-		if err := cmd.Run(args...); err != nil {
-			return fmt.Errorf("dataMigrate: %s", err)
-		}
-	}
-	return nil
+    if len(args) > 0 {
+        cmd := NewDataMigrateCommand()
+        if err := cmd.Run(args...); err != nil {
+            return fmt.Errorf("dataMigrate: %s", err)
+        }
+    }
+    return nil
 }
