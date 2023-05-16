@@ -41,7 +41,6 @@ func (a ascLocations) Less(i, j int) bool {
 }
 
 type Cursor struct {
-    st     int64
     et     int64
     readTs int64
     key    []byte
@@ -51,7 +50,7 @@ type Cursor struct {
     pos   int
 }
 
-func (c *Cursor) init(st int64) error {
+func (c *Cursor) init() error {
     sort.Sort(ascLocations(c.seeks))
     for _, e := range c.seeks {
         if e.readMax < e.entry.MinTime-1 {

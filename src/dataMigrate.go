@@ -269,13 +269,12 @@ func (cmd *DataMigrateCommand) writeCurrentFiles() error {
         for f := range field {
             key := tsm1.SeriesFieldKeyBytes(series, f)
             newCursor := &Cursor{
-                st:     cmd.startTime,
                 et:     cmd.endTime,
                 readTs: cmd.startTime,
                 key:    key,
                 seeks:  cmd.locations(key, cmd.startTime),
             }
-            if err := newCursor.init(cmd.startTime); err != nil {
+            if err := newCursor.init(); err != nil {
                 return err
             }
             scanner.fields[f] = newCursor
