@@ -66,7 +66,7 @@ func (c *Cursor) init() error {
 
 func (c *Cursor) readBlock() (tsm1.Values, error) {
     // No matching blocks to decode
-    if len(c.seeks) == 0 || c.readTs == c.et {
+    if len(c.seeks) == 0 || c.readTs >= c.et {
         return nil, nil
     }
 
@@ -132,6 +132,11 @@ func (c *Cursor) readBlock() (tsm1.Values, error) {
 
     // mark the time range that have been read
     c.readTs = upperBound
+
+    if len(buf) <= 0 {
+        return c.readBlock()
+    }
+
     return sortAndDeduplicateValues(&buf), nil
 }
 
