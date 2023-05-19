@@ -272,7 +272,7 @@ func (cmd *DataMigrateCommand) writeCurrentFiles() error {
                 et:     cmd.endTime,
                 readTs: cmd.startTime,
                 key:    key,
-                seeks:  cmd.locations(key, cmd.startTime),
+                seeks:  cmd.locations(key, cmd.startTime, cmd.endTime),
             }
             if err := newCursor.init(); err != nil {
                 return err
@@ -287,7 +287,7 @@ func (cmd *DataMigrateCommand) writeCurrentFiles() error {
 }
 
 // Referenced from the implementation of InfluxDB
-func (cmd *DataMigrateCommand) locations(key []byte, st int64) []*location {
+func (cmd *DataMigrateCommand) locations(key []byte, st int64, et int64) []*location {
     var cache []tsm1.IndexEntry
     var locations []*location
     for _, fd := range cmd.files {
@@ -310,6 +310,10 @@ func (cmd *DataMigrateCommand) locations(key []byte, st int64) []*location {
             // If the max time of a block is before where we are looking, skip
             // it since the data is out of our range
             if ie.MaxTime < st {
+                continue
+            }
+
+            if ie.MinTime > et {
                 continue
             }
 

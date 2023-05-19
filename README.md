@@ -43,4 +43,7 @@ Usage: dataMigrate [flags]
   -to string
     	Destination host to write data to (default "127.0.0.1:8086",which is the openGemini service default address)
 ```
+
+**Notice**: When using this tool, please do not migrate data without shutting down InfluxDB if possible;   otherwise, some unknown problems may occur.   To ensure that data is as complete as possible after migration, keep the empty write load running before shutting down InfluxDB and wait for data in the cache to complete disk dumping (10 minutes by default).
+
 **Welcome to add more features.**
