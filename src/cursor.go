@@ -15,6 +15,7 @@ copyright 2023 Qizhi Huang(flaggyellow@qq.com)
 package main
 
 import (
+    "fmt"
     "math"
     "sort"
     "time"
@@ -50,6 +51,11 @@ type Cursor struct {
 }
 
 func (c *Cursor) init() error {
+    if len(c.seeks) == 0 {
+        c.buf = nil
+        c.pos = 0
+        return nil
+    }
     sort.Sort(ascLocations(c.seeks))
     for _, e := range c.seeks {
         if e.readMax < e.entry.MinTime-1 {
@@ -171,11 +177,13 @@ func (c *Cursor) readBlock() (tsm1.Values, error) {
     }
 
     // mark the time range that have been read
+    tmpReadTs := c.readTs
     c.readTs = upperBound
 
     if len(buf) <= 0 {
-        logger.LogString("Cursor.readBlock: the buffer is empty", TOLOGFILE|TOCONSOLE, LEVEL_ERROR)
-        return nil, nil
+        logger.LogString(fmt.Sprintf("Cursor.readBlock: the buffer is empty with %d locations reading, readTs %d, upperbound %d",
+            len(locsToRead), tmpReadTs, upperBound), TOLOGFILE, LEVEL_DEBUG)
+        return c.readBlock()
     }
 
     return sortAndDeduplicateValues(&buf), nil
