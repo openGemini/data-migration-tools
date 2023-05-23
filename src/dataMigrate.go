@@ -22,14 +22,18 @@ import (
     "os"
     "path/filepath"
     "sort"
+    "strconv"
     "strings"
     "time"
+
+    "net/http"
+    _ "net/http/pprof"
 
     "github.com/influxdata/influxdb/tsdb/engine/tsm1"
     client "github.com/influxdata/influxdb1-client/v2"
 )
 
-const BATCHSIZE = 200
+const BATCHSIZE = 5000
 
 // escape set for tags
 type escapeSet struct {
@@ -45,6 +49,21 @@ var (
     }
 )
 
+type fileGroupInfo struct {
+    db  string
+    rp  string
+    sid string
+}
+
+type statInfo struct {
+    rowsRead   int
+    tagsRead   map[string]struct{}
+    fieldsRead map[string]struct{}
+    rowsTotal  int
+    tagsTotal  map[string]struct{}
+    fieldTotal map[string]struct{}
+}
+
 type DataMigrateCommand struct {
     // Standard input/output, overridden for testing.
     Stderr io.Writer
@@ -57,11 +76,13 @@ type DataMigrateCommand struct {
     startTime       int64
     endTime         int64
 
-    manifest map[string]struct{}
+    manifest []fileGroupInfo
     tsmFiles map[string][]string
     files    []tsm1.TSMFile
     // series to fields
     serieskeys map[string]map[string]struct{}
+    // statistics
+    stat statInfo
 }
 
 // NewDataMigrateCommand returns a new instance of DataMigrateCommand.
@@ -70,22 +91,30 @@ func NewDataMigrateCommand() *DataMigrateCommand {
         Stderr: os.Stderr,
         Stdout: os.Stdout,
 
-        manifest:   make(map[string]struct{}),
+        manifest:   make([]fileGroupInfo, 0),
         tsmFiles:   make(map[string][]string),
         files:      make([]tsm1.TSMFile, 0),
         serieskeys: make(map[string]map[string]struct{}),
+        stat: statInfo{
+            tagsRead:   make(map[string]struct{}),
+            fieldsRead: make(map[string]struct{}),
+            tagsTotal:  make(map[string]struct{}),
+            fieldTotal: make(map[string]struct{}),
+        },
     }
 }
 
 // Run executes the command.
 func (cmd *DataMigrateCommand) Run(args ...string) error {
     var start, end string
+    var debug string
     flag.StringVar(&cmd.dataDir, "from", "/var/lib/influxdb/data", "Data storage path")
     flag.StringVar(&cmd.out, "to", "127.0.0.1:8086", "Destination host to write data to")
     flag.StringVar(&cmd.database, "database", "", "Optional: the database to read")
     flag.StringVar(&cmd.retentionPolicy, "retention", "", "Optional: the retention policy to read (requires -database)")
     flag.StringVar(&start, "start", "", "Optional: the start time to read (RFC3339 format)")
     flag.StringVar(&end, "end", "", "Optional: the end time to read (RFC3339 format)")
+    flag.StringVar(&debug, "mode", "", "Optional: whether to enable debug log or not")
 
     flag.Usage = func() {
         fmt.Fprintf(cmd.Stdout, "Reads TSM files into InfluxDB line protocol format and insert into openGemini\n\n")
@@ -94,6 +123,14 @@ func (cmd *DataMigrateCommand) Run(args ...string) error {
     }
 
     flag.Parse()
+
+    // write params to log
+    logger.LogString("Got param \"from\": "+cmd.dataDir, TOLOGFILE, LEVEL_INFO)
+    logger.LogString("Got param \"to\": "+cmd.out, TOLOGFILE, LEVEL_INFO)
+    logger.LogString("Got param \"database\": "+cmd.database, TOLOGFILE, LEVEL_INFO)
+    logger.LogString("Got param \"retention\": "+cmd.retentionPolicy, TOLOGFILE, LEVEL_INFO)
+    logger.LogString("Got param \"start\": "+start, TOLOGFILE, LEVEL_INFO)
+    logger.LogString("Got param \"end\": "+end, TOLOGFILE, LEVEL_INFO)
 
     // set defaults
     if start != "" {
@@ -119,6 +156,20 @@ func (cmd *DataMigrateCommand) Run(args ...string) error {
     if err := cmd.validate(); err != nil {
         return err
     }
+
+    if debug == "debug" || debug == "Debug" || debug == "DEBUG" {
+        logger.SetDebug()
+        logger.LogString("Debug mode is enabled", TOCONSOLE|TOLOGFILE, LEVEL_DEBUG)
+    }
+
+    // start the pprof tool
+    go func() {
+        err := http.ListenAndServe("localhost:6160", nil)
+        if err != nil {
+            logger.LogString("pprof started failed: "+err.Error(), TOCONSOLE|TOLOGFILE, LEVEL_ERROR)
+        }
+    }()
+
     return cmd.runMigrate()
 }
 
@@ -129,23 +180,32 @@ func (cmd *DataMigrateCommand) setOutput(url string) {
 // Check whether the parameters are valid or not.
 func (cmd *DataMigrateCommand) validate() error {
     if cmd.retentionPolicy != "" && cmd.database == "" {
-        return fmt.Errorf("must specify a db")
+        return fmt.Errorf("dataMigrate: must specify a db")
     }
     if cmd.startTime != 0 && cmd.endTime != 0 && cmd.endTime < cmd.startTime {
-        return fmt.Errorf("end time before start time")
+        return fmt.Errorf("dataMigrate: end time before start time")
     }
     return nil
 }
 
 func (cmd *DataMigrateCommand) runMigrate() error {
+    st := time.Now()
     if err := cmd.walkTSMFiles(); err != nil {
         return err
     }
-    return cmd.migrate()
+    if err := cmd.migrate(); err != nil {
+        return err
+    }
+    eclipse := time.Since(st)
+    logger.LogString("Total: takes "+eclipse.String()+" to migrate, with "+
+        strconv.Itoa(len(cmd.stat.tagsTotal))+" tags, "+strconv.Itoa(len(cmd.stat.fieldTotal))+
+        " fields, "+strconv.Itoa(cmd.stat.rowsTotal)+" rows read.", TOCONSOLE|TOLOGFILE, LEVEL_INFO)
+    return nil
 }
 
 func (cmd *DataMigrateCommand) walkTSMFiles() error {
-    return filepath.Walk(cmd.dataDir, func(path string, f os.FileInfo, err error) error {
+    logger.LogString("Searching for tsm files to migrate", TOCONSOLE|TOLOGFILE, LEVEL_INFO)
+    err := filepath.Walk(cmd.dataDir, func(path string, f os.FileInfo, err error) error {
         if err != nil {
             return err
         }
@@ -159,41 +219,76 @@ func (cmd *DataMigrateCommand) walkTSMFiles() error {
             return err
         }
         dirs := strings.Split(relPath, string(byte(os.PathSeparator)))
-        if len(dirs) < 2 {
+        if len(dirs) < 4 {
             return fmt.Errorf("invalid directory structure for %s", path)
         }
+
         if dirs[0] == cmd.database || cmd.database == "" {
             if dirs[1] == cmd.retentionPolicy || cmd.retentionPolicy == "" {
-                key := filepath.Join(dirs[0], dirs[1])
-                cmd.manifest[key] = struct{}{}
+                key := filepath.Join(dirs[0], dirs[1], dirs[2])
                 cmd.tsmFiles[key] = append(cmd.tsmFiles[key], path)
+                if len(cmd.tsmFiles[key]) == 1 {
+                    cmd.manifest = append(cmd.manifest, fileGroupInfo{
+                        db:  dirs[0],
+                        rp:  dirs[1],
+                        sid: dirs[2],
+                    })
+                }
             }
         }
         return nil
     })
+    if err != nil {
+        return err
+    }
+    // sort by db first, then by rp, then by sid
+    sort.Slice(cmd.manifest, func(i, j int) bool {
+        dbCmp := strings.Compare(cmd.manifest[i].db, cmd.manifest[j].db)
+        if dbCmp != 0 {
+            return dbCmp < 0
+        }
+        rpCmp := strings.Compare(cmd.manifest[i].rp, cmd.manifest[j].rp)
+        if rpCmp != 0 {
+            return rpCmp < 0
+        }
+        sid_i, _ := strconv.Atoi(cmd.manifest[i].sid)
+        sid_j, _ := strconv.Atoi(cmd.manifest[j].sid)
+        return sid_i < sid_j
+    })
+    return nil
 }
 
 func (cmd *DataMigrateCommand) migrate() error {
-    for key := range cmd.manifest {
+    for i, info := range cmd.manifest {
+        key := filepath.Join(info.db, info.rp, info.sid)
         if files, ok := cmd.tsmFiles[key]; ok {
-            fmt.Fprintf(cmd.Stdout, "writing out tsm file data for %s...\n", key)
+            logger.LogString(fmt.Sprintf("Writing out data from shard %v, [%d/%d]...", key, i+1, len(cmd.manifest)), TOCONSOLE|TOLOGFILE, LEVEL_INFO)
+            st := time.Now()
             if err := cmd.migrateTsmFiles(files); err != nil {
                 return err
             }
+            eclipse := time.Since(st)
+            cmd.stat.rowsTotal += cmd.stat.rowsRead
+            logger.LogString("Shard "+key+" takes "+eclipse.String()+" to migrate, with "+
+                strconv.Itoa(len(cmd.stat.tagsRead))+" tags, "+strconv.Itoa(len(cmd.stat.fieldsRead))+
+                " fields, "+strconv.Itoa(cmd.stat.rowsRead)+" rows read", TOCONSOLE|TOLOGFILE, LEVEL_INFO)
+            cmd.stat.rowsRead = 0
+            cmd.stat.tagsRead = make(map[string]struct{})
+            cmd.stat.fieldsRead = make(map[string]struct{})
+        } else {
+            logger.LogString("migrate: manifest does not match tsmFiles", TOLOGFILE, LEVEL_WARNING)
         }
     }
     return nil
 }
 
 func (cmd *DataMigrateCommand) migrateTsmFiles(files []string) error {
-    fmt.Fprintln(cmd.Stdout, "begin insert tsm data into openGemini")
-
     // we need to make sure we write the same order that the files were written
     sort.Strings(files)
 
-    for i, f := range files {
-        fmt.Fprintf(cmd.Stdout, "Deal file: %s, [%d/%d]\n", f, i+1, len(files))
+    for _, f := range files {
         // read all of the TSMFiles using TSMReader
+        logger.LogString(fmt.Sprintf("Dealing file: %s", f), TOCONSOLE|TOLOGFILE, LEVEL_INFO)
         if err := cmd.readTSMFile(f); err != nil {
             cmd.releaseTSMReaders()
             return err
@@ -209,7 +304,7 @@ func (cmd *DataMigrateCommand) readTSMFile(tsmFilePath string) error {
     f, err := os.Open(tsmFilePath)
     if err != nil {
         if os.IsNotExist(err) {
-            fmt.Fprintf(cmd.Stdout, "skipped missing file: %s", tsmFilePath)
+            logger.LogString("readTSMFile: missing file skipped: "+tsmFilePath, TOLOGFILE, LEVEL_WARNING)
             return nil
         }
         return err
@@ -218,7 +313,7 @@ func (cmd *DataMigrateCommand) readTSMFile(tsmFilePath string) error {
 
     r, err := tsm1.NewTSMReader(f)
     if err != nil {
-        fmt.Fprintf(cmd.Stderr, "unable to read %s, skipping: %s\n", tsmFilePath, err.Error())
+        logger.LogString(fmt.Sprintf("unable to read %s, skipping: %s", tsmFilePath, err.Error()), TOLOGFILE|TOCONSOLE, LEVEL_ERROR)
         return nil
     }
 
@@ -249,7 +344,8 @@ func (cmd *DataMigrateCommand) writeCurrentFiles() error {
         Addr: "http://" + cmd.out,
     })
     if err != nil {
-        fmt.Println("Error creating openGemini Client: ", err.Error())
+        logger.LogString("Error creating openGemini Client: "+err.Error(), TOLOGFILE|TOCONSOLE, LEVEL_ERROR)
+        return err
     }
     defer c.Close()
 
@@ -345,14 +441,7 @@ func (cmd *DataMigrateCommand) releaseTSMReaders() {
     cmd.serieskeys = map[string]map[string]struct{}{}
 }
 
-type parseErr struct {
-    err string
-}
-
-func (err parseErr) Error() string {
-    return err.err
-}
-
+// This function is used to split the underlying read SeriesKey with escape characters and convert it into a string that can be processed normally
 func (cmd *DataMigrateCommand) splitMeasurementAndTag(buf string) (measurement string, tags map[string]string, err error) {
     buf_runes := []rune(buf)
     splits := make([][]rune, 0)
@@ -379,7 +468,7 @@ func (cmd *DataMigrateCommand) splitMeasurementAndTag(buf string) (measurement s
     }
     measurement = string(splits[0])
     if len(measurement) <= 0 {
-        return "", nil, parseErr{"parse failed: measurement can not be nil"}
+        return "", nil, fmt.Errorf("splitMeasurementAndTag parse failed: measurement can not be nil")
     }
     for i, kv := range splits {
         if i == 0 {
@@ -399,7 +488,7 @@ func (cmd *DataMigrateCommand) splitMeasurementAndTag(buf string) (measurement s
                 tagKey := string(kv[:i])
                 tagValue := string(kv[i+1:])
                 if len(tagKey) <= 0 || len(tagValue) <= 0 {
-                    return "", nil, parseErr{"parse failed: empty tag key or tag value"}
+                    return "", nil, fmt.Errorf("splitMeasurementAndTag parse failed: empty tag key or tag value")
                 }
                 tags[unescapeTag(tagKey)] = unescapeTag(tagValue)
             }

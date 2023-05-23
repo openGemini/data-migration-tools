@@ -40,6 +40,8 @@ Usage: dataMigrate [flags]
     	Optional: the retention policy to read (requires -database)
   -start string
     	Optional: the start time to read (RFC3339 format)
+  -mode string
+      Optional: whether to enable debug log or not (set as "Debug" to enable it)
   -to string
     	Destination host to write data to (default "127.0.0.1:8086",which is the openGemini service default address)
 ```

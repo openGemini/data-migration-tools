@@ -53,33 +53,40 @@ var (
         },
     }
 
-    basicCorpusExpLines = []string{
-        "floats,k=f f=1.5 1",
-        "floats,k=f f=3 2",
-        "ints,k=i i=15i 10",
-        "ints,k=i i=30i 20",
-        "bools,k=b b=true 100",
-        "bools,k=b b=false 200",
-        `strings,k=s s="1k" 1000`,
-        `strings,k=s s="2k" 2000`,
-        `uints,k=u u=45u 3000`,
-        `uints,k=u u=60u 4000`,
-    }
+    /*
+       In string field values, must escape:
+           * double quotes
+           * backslash character
+
+       In string field values, must escape:
+           * double quotes
+           * backslash character
+
+       In measurements, must escape:
+           * commas
+           * spaces
+    */
 
     escapeStringCorpus = corpus{
-        tsm1.SeriesFieldKey("t", "s"): []tsm1.Value{
+        tsm1.SeriesFieldKey(`"measurement\ with\ quo⚡es\ and\ emo\=ji",tag\ key\ wi\=th\ sp🚀ces=tag\,value\,wi\=th"commas"`, `field_k\ey`): []tsm1.Value{
             tsm1.NewValue(1, `1. "quotes"`),
             tsm1.NewValue(2, `2. back\slash`),
             tsm1.NewValue(3, `3. bs\q"`),
         },
-    }
-
-    escCorpusExpLines = []string{
-        `t s="1. \"quotes\"" 1`,
-        `t s="2. back\\slash" 2`,
-        `t s="3. bs\\q\"" 3`,
+        tsm1.SeriesFieldKey(`"measurement\,with\,quo⚡es\,and\,emo\=ji",tag\,key\,with\,"c💥mms"=tag\ value\ w💝th\ space`, `field_k\ey`): []tsm1.Value{
+            tsm1.NewValue(4, `string field value, only " need be esc🍭ped`),
+            tsm1.NewValue(5, `string field value, only """" need be escaped`),
+        },
     }
 )
+
+func TestMain(m *testing.M) {
+    fmt.Println("begin")
+    logger = NewLogger()
+    defer logger.close()
+    m.Run()
+    fmt.Println("end")
+}
 
 func Test_ReadTSMFile(t *testing.T) {
     server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -96,14 +103,11 @@ func Test_ReadTSMFile(t *testing.T) {
     cmd := newCommand()
     cmd.setOutput(server.URL)
 
-    for _, c := range []struct {
-        corpus corpus
-        lines  []string
-    }{
-        {corpus: basicCorpus, lines: basicCorpusExpLines},
-        {corpus: escapeStringCorpus, lines: escCorpusExpLines},
+    for _, c := range []corpus{
+        basicCorpus,
+        escapeStringCorpus,
     } {
-        tsmFile := writeCorpusToTSMFile(c.corpus)
+        tsmFile := writeCorpusToTSMFile(c)
         defer os.Remove(tsmFile.Name())
 
         filelist := []string{tsmFile.Name()}
@@ -116,6 +120,32 @@ func Test_ReadTSMFile(t *testing.T) {
     // Missing .tsm file should not cause a failure.
     filelist := []string{"file-that-does-not-exist.tsm"}
     if err := newCommand().migrateTsmFiles(filelist); err != nil {
+        t.Fatal(err)
+    }
+}
+
+func TestEmptyMigrate(t *testing.T) {
+    server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        //time.Sleep(100 * time.Millisecond)
+        if r.Method == http.MethodPost {
+            w.WriteHeader(http.StatusOK)
+            //_, _ = w.Write(bytes)
+        } else {
+            w.WriteHeader(http.StatusNotFound)
+        }
+    }))
+    defer server.Close()
+
+    cmd := newCommand()
+    cmd.startTime = 0
+    cmd.endTime = 0
+    cmd.setOutput(server.URL)
+
+    f := writeCorpusToTSMFile(makeFloatsCorpus(100, 250))
+    defer os.Remove(f.Name())
+
+    filelist := []string{f.Name()}
+    if err := cmd.migrateTsmFiles(filelist); err != nil {
         t.Fatal(err)
     }
 }
@@ -170,10 +200,18 @@ func newCommand() *DataMigrateCommand {
     return &DataMigrateCommand{
         Stderr:     ioutil.Discard,
         Stdout:     ioutil.Discard,
-        startTime:  math.MinInt64,
-        endTime:    math.MaxInt64,
+        manifest:   make([]fileGroupInfo, 0),
+        tsmFiles:   make(map[string][]string),
         files:      make([]tsm1.TSMFile, 0),
         serieskeys: make(map[string]map[string]struct{}),
+        startTime:  math.MinInt64,
+        endTime:    math.MaxInt64,
+        stat: statInfo{
+            tagsRead:   make(map[string]struct{}),
+            fieldsRead: make(map[string]struct{}),
+            tagsTotal:  make(map[string]struct{}),
+            fieldTotal: make(map[string]struct{}),
+        },
     }
 }
 
