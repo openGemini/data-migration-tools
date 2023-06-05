@@ -332,13 +332,13 @@ func (s *Scanner) writeBatches(c client.Client, cmd Migrator) error {
 
 		bp.AddPoint(pt)
 		count = count + 1
-		if count == BATCHSIZE {
+		if count == cmd.getBatchSize() {
 			err := c.Write(bp)
 			if err != nil {
 				logger.LogString("insert error: "+err.Error(), TOLOGFILE|TOCONSOLE, LEVEL_ERROR)
 				return err
 			}
-			cmd.getStat().rowsRead += BATCHSIZE
+			cmd.getStat().rowsRead += cmd.getBatchSize()
 			flag = true
 			count = 0
 		}

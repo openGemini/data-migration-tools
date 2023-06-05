@@ -16,6 +16,7 @@ type Migrator interface {
 	getDatabase() string
 	getStat() *statInfo
 	getGStat() *globalStatInfo
+	getBatchSize() int
 	release()
 }
 
@@ -48,6 +49,7 @@ type migrator struct {
 	database  string
 	startTime int64
 	endTime   int64
+	batchSize int
 
 	files *[]tsm1.TSMFile
 	// series to fields
@@ -55,6 +57,10 @@ type migrator struct {
 	// statistics
 	stat  *statInfo
 	gstat *globalStatInfo
+}
+
+func (m *migrator) getBatchSize() int {
+	return m.batchSize
 }
 
 func (m *migrator) release() {
@@ -84,6 +90,7 @@ func NewMigrator(cmd *DataMigrateCommand) *migrator {
 		serieskeys: make(map[string]map[string]struct{}, 100),
 		stat:       statPool.Get().(*statInfo),
 		gstat:      cmd.gstat,
+		batchSize:  cmd.batchSize,
 	}
 	mig.stat.rowsRead = 0
 	mig.stat.tagsRead = make(map[string]struct{})
