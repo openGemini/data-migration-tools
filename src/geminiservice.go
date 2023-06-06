@@ -13,15 +13,18 @@ type GeminiService interface {
 var _ GeminiService = (*geminiService)(nil)
 
 type geminiService struct {
+	out string
 }
 
-func NewGeminiService() *geminiService {
-	return &geminiService{}
+func NewGeminiService(cmd *DataMigrateCommand) *geminiService {
+	return &geminiService{
+		out: cmd.out,
+	}
 }
 
 func (g *geminiService) GetShardGroupDuration(database, rp string) (time.Duration, error) {
 	c, err := client.NewHTTPClient(client.HTTPConfig{
-		Addr: "http://localhost:8086",
+		Addr: "http://" + g.out,
 	})
 	if err != nil {
 		return 0, errors.WithStack(err)

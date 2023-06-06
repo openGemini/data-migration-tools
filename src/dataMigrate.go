@@ -39,8 +39,6 @@ import (
 	"github.com/influxdata/influxdb/tsdb/engine/tsm1"
 )
 
-const BATCHSIZE = 100
-
 // escape set for tags
 type escapeSet struct {
 	k   [1]byte
@@ -90,6 +88,7 @@ type DataMigrateCommand struct {
 	retentionPolicy string
 	startTime       int64
 	endTime         int64
+	batchSize       int
 
 	manifest []fileGroupInfo
 	tsmFiles map[string][]string
@@ -123,6 +122,7 @@ func (cmd *DataMigrateCommand) Run(args ...string) error {
 	flag.StringVar(&start, "start", "", "Optional: the start time to read (RFC3339 format)")
 	flag.StringVar(&end, "end", "", "Optional: the end time to read (RFC3339 format)")
 	flag.StringVar(&debug, "mode", "", "Optional: whether to enable debug log or not")
+	flag.IntVar(&cmd.batchSize, "batch", 5000, "Optional: specify batch size for inserting lines")
 
 	flag.Usage = func() {
 		fmt.Fprintf(cmd.Stdout, "Reads TSM files into InfluxDB line protocol format and insert into openGemini\n\n")
@@ -139,6 +139,7 @@ func (cmd *DataMigrateCommand) Run(args ...string) error {
 	logger.LogString("Got param \"retention\": "+cmd.retentionPolicy, TOLOGFILE, LEVEL_INFO)
 	logger.LogString("Got param \"start\": "+start, TOLOGFILE, LEVEL_INFO)
 	logger.LogString("Got param \"end\": "+end, TOLOGFILE, LEVEL_INFO)
+	logger.LogString("Got param \"batch\": "+strconv.Itoa(cmd.batchSize), TOLOGFILE, LEVEL_INFO)
 
 	// set defaults
 	if start != "" {
@@ -165,7 +166,7 @@ func (cmd *DataMigrateCommand) Run(args ...string) error {
 		return err
 	}
 
-	gs := NewGeminiService()
+	gs := NewGeminiService(cmd)
 	shardGroupDuration, err := gs.GetShardGroupDuration(cmd.database, "autogen")
 	if err != nil {
 		return err
