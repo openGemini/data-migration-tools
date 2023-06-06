@@ -15,6 +15,7 @@ copyright 2023 Qizhi Huang(flaggyellow@qq.com)
 package main
 
 import (
+	"container/heap"
 	"fmt"
 	"math"
 	"sort"
@@ -243,27 +244,61 @@ func sortAndDeduplicateValues(buf *[]tsm1.Value) []tsm1.Value {
 	return (*buf)[:i+1]
 }
 
+type heapCursor struct {
+	items []*Cursor
+}
+
+func (h *heapCursor) Len() int {
+	return len(h.items)
+}
+
+func (h *heapCursor) Less(i, j int) bool {
+	x, y := h.items[i], h.items[j]
+	xv, _ := x.peek()
+	yv, _ := y.peek()
+	if xv == nil {
+		return false
+	}
+	if yv == nil {
+		return true
+	}
+	return xv.UnixNano() < yv.UnixNano()
+}
+
+func (h *heapCursor) Swap(i, j int) {
+	h.items[i], h.items[j] = h.items[j], h.items[i]
+}
+
+func (h *heapCursor) Push(x interface{}) {
+	h.items = append(h.items, x.(*Cursor))
+}
+
+func (h *heapCursor) Pop() interface{} {
+	old := h.items
+	n := len(old)
+	item := old[n-1]
+	h.items = old[0 : n-1]
+	return item
+}
+
 type Scanner struct {
 	measurement string
 	tags        map[string]string
 	fields      map[string]*Cursor
+	heapCursor  *heapCursor
 }
 
 func (s *Scanner) nextPoint(cmd Migrator) (*client.Point, error) {
 	// determine the current timestamp
 	var curTs int64 = math.MaxInt64
-	for _, cursor := range s.fields {
-		v, err := cursor.peek()
-		if err != nil {
-			return nil, err
-		}
-		if v == nil {
-			continue
-		}
-		if curTs > v.UnixNano() {
-			curTs = v.UnixNano()
-		}
+	// min heap
+	currItem := heap.Pop(s.heapCursor).(*Cursor) // min heap
+	currVal, _ := currItem.peek()
+	if currVal != nil {
+		curTs = currVal.UnixNano()
+		heap.Push(s.heapCursor, currItem)
 	}
+
 	if curTs == math.MaxInt64 {
 		return nil, nil
 	}

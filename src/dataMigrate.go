@@ -122,7 +122,7 @@ func (cmd *DataMigrateCommand) Run(args ...string) error {
 	flag.StringVar(&start, "start", "", "Optional: the start time to read (RFC3339 format)")
 	flag.StringVar(&end, "end", "", "Optional: the end time to read (RFC3339 format)")
 	flag.StringVar(&debug, "mode", "", "Optional: whether to enable debug log or not")
-	flag.IntVar(&cmd.batchSize, "batch", 5000, "Optional: specify batch size for inserting lines")
+	flag.IntVar(&cmd.batchSize, "batch", 1000, "Optional: specify batch size for inserting lines")
 
 	flag.Usage = func() {
 		fmt.Fprintf(cmd.Stdout, "Reads TSM files into InfluxDB line protocol format and insert into openGemini\n\n")
@@ -180,7 +180,7 @@ func (cmd *DataMigrateCommand) Run(args ...string) error {
 
 	// start the pprof tool
 	go func() {
-		err := http.ListenAndServe("localhost:6160", nil)
+		err := http.ListenAndServe(":6160", nil)
 		if err != nil {
 			logger.LogString("pprof started failed: "+err.Error(), TOCONSOLE|TOLOGFILE, LEVEL_ERROR)
 		}

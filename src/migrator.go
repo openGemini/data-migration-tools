@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/golang/groupcache/lru"
 	"github.com/influxdata/influxdb/tsdb/engine/tsm1"
 	client "github.com/influxdata/influxdb1-client/v2"
 	"os"
@@ -38,6 +39,18 @@ var filesPool = sync.Pool{
 	},
 }
 
+var mstCachePool = sync.Pool{
+	New: func() interface{} {
+		return &lru.Cache{MaxEntries: 1000}
+	},
+}
+
+var tagsCachePool = sync.Pool{
+	New: func() interface{} {
+		return &lru.Cache{MaxEntries: 1000}
+	},
+}
+
 type statInfo struct {
 	rowsRead   int
 	tagsRead   map[string]struct{}
@@ -57,6 +70,9 @@ type migrator struct {
 	// statistics
 	stat  *statInfo
 	gstat *globalStatInfo
+
+	mstCache  *lru.Cache // measurement cache
+	tagsCache *lru.Cache // tags cache
 }
 
 func (m *migrator) getBatchSize() int {
@@ -66,6 +82,8 @@ func (m *migrator) getBatchSize() int {
 func (m *migrator) release() {
 	statPool.Put(m.stat)
 	filesPool.Put(m.files)
+	mstCachePool.Put(m.mstCache)
+	tagsCachePool.Put(m.tagsCache)
 }
 
 func (m *migrator) getGStat() *globalStatInfo {
@@ -91,6 +109,8 @@ func NewMigrator(cmd *DataMigrateCommand) *migrator {
 		stat:       statPool.Get().(*statInfo),
 		gstat:      cmd.gstat,
 		batchSize:  cmd.batchSize,
+		mstCache:   mstCachePool.Get().(*lru.Cache),
+		tagsCache:  tagsCachePool.Get().(*lru.Cache),
 	}
 	mig.stat.rowsRead = 0
 	mig.stat.tagsRead = make(map[string]struct{})
@@ -147,10 +167,11 @@ func (m *migrator) readTSMFile(tsmFilePath string) error {
 	for i := 0; i < r.KeyCount(); i++ {
 		key, _ := r.KeyAt(i)
 		series, field := tsm1.SeriesAndFieldFromCompositeKey(key)
-		if _, ok := m.serieskeys[string(series)]; !ok {
-			m.serieskeys[string(series)] = make(map[string]struct{})
+		seriesStr := string(series)
+		if _, ok := m.serieskeys[seriesStr]; !ok {
+			m.serieskeys[seriesStr] = make(map[string]struct{})
 		}
-		m.serieskeys[string(series)][string(field)] = struct{}{}
+		m.serieskeys[seriesStr][string(field)] = struct{}{}
 	}
 	return nil
 }
@@ -174,16 +195,27 @@ func (m *migrator) writeCurrentFiles() error {
 	defer c.Close()
 
 	for series, field := range m.serieskeys {
-		measurement, tags, err := splitMeasurementAndTag(series)
-		if err != nil {
-			return err
+		var measurement interface{}
+		var tags interface{}
+		var ok bool
+		if measurement, ok = m.mstCache.Get(series); !ok {
+			measurement, tags, err = splitMeasurementAndTag(series)
+			if err != nil {
+				return err
+			}
+			m.mstCache.Add(series, measurement)
+			m.tagsCache.Add(series, tags)
 		}
+		tags, _ = m.tagsCache.Get(series)
 
 		// construct Scanner
 		scanner := &Scanner{
-			measurement: measurement,
-			tags:        tags,
-			fields:      make(map[string]*Cursor),
+			measurement: measurement.(string),
+			tags:        tags.(map[string]string),
+			fields:      make(map[string]*Cursor, len(field)),
+			heapCursor: &heapCursor{
+				items: make([]*Cursor, 0, len(field)),
+			},
 		}
 		// construct field cursors
 		for f := range field {
@@ -198,6 +230,7 @@ func (m *migrator) writeCurrentFiles() error {
 				return err
 			}
 			scanner.fields[f] = newCursor
+			scanner.heapCursor.items = append(scanner.heapCursor.items, newCursor)
 		}
 		if err := scanner.writeBatches(c, m); err != nil {
 			return err
