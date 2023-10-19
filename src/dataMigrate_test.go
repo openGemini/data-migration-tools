@@ -83,7 +83,7 @@ var (
 func TestMain(m *testing.M) {
 	fmt.Println("begin")
 	logger = NewLogger()
-	defer logger.close()
+	defer logger.Close()
 	m.Run()
 	fmt.Println("end")
 }
