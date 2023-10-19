@@ -1,4 +1,4 @@
-module dataMigrate
+module github.com/openGemini/dataMigrate
 
 go 1.16
 

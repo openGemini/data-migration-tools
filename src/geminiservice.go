@@ -1,4 +1,4 @@
-package main
+package src
 
 import (
 	client "github.com/influxdata/influxdb1-client/v2"

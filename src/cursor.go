@@ -12,7 +12,7 @@ the implementations of the "location" and "KeyCursor" classes in the above file 
 copyright 2023 Qizhi Huang(flaggyellow@qq.com)
 */
 
-package main
+package src
 
 import (
 	"container/heap"
@@ -348,7 +348,6 @@ func (s *Scanner) writeBatches(c client.Client, cmd Migrator) error {
 		}
 
 		pt, err := s.nextPoint(cmd)
-
 		if err != nil {
 			logger.LogString("point read error: "+err.Error(), TOLOGFILE|TOCONSOLE, LEVEL_ERROR)
 			return err
@@ -356,11 +355,7 @@ func (s *Scanner) writeBatches(c client.Client, cmd Migrator) error {
 
 		if pt == nil {
 			rowsNum := len(bp.Points())
-			err := c.Write(bp)
-			if err != nil {
-				logger.LogString("insert error: "+err.Error(), TOLOGFILE|TOCONSOLE, LEVEL_ERROR)
-				return err
-			}
+			s.retryWrite(c, bp)
 			cmd.getStat().rowsRead += rowsNum
 			break
 		}
@@ -368,15 +363,26 @@ func (s *Scanner) writeBatches(c client.Client, cmd Migrator) error {
 		bp.AddPoint(pt)
 		count = count + 1
 		if count == cmd.getBatchSize() {
-			err := c.Write(bp)
-			if err != nil {
-				logger.LogString("insert error: "+err.Error(), TOLOGFILE|TOCONSOLE, LEVEL_ERROR)
-				return err
-			}
+			s.retryWrite(c, bp)
 			cmd.getStat().rowsRead += cmd.getBatchSize()
 			flag = true
 			count = 0
 		}
 	}
 	return nil
+}
+
+func (s *Scanner) retryWrite(c client.Client, bp client.BatchPoints) {
+	for {
+		err := c.Write(bp)
+		if err == nil {
+			break
+		}
+		logger.LogString("insert error: "+err.Error(), TOLOGFILE|TOCONSOLE, LEVEL_ERROR)
+		points := bp.Points()
+		if len(points) > 0 {
+			logger.LogString("retry for points like:"+points[0].String(), TOLOGFILE|TOCONSOLE, LEVEL_ERROR)
+		}
+		time.Sleep(3 * time.Second)
+	}
 }

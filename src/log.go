@@ -2,7 +2,7 @@
 copyright 2023 Qizhi Huang(flaggyellow@qq.com)
 */
 
-package main
+package src
 
 import (
 	"log"
@@ -30,7 +30,7 @@ var LevelPrefixDict map[int]string = map[int]string{
 	LEVEL_ERROR:   "ERROR: ",
 }
 
-type Logger struct {
+type Log struct {
 	logDir        string
 	logName       string
 	fileWriter    *os.File
@@ -40,12 +40,20 @@ type Logger struct {
 	debug         bool
 }
 
-func NewLogger() *Logger {
+var Logger *Log
+var logger *Log
+
+func init() {
+	Logger = NewLogger()
+	logger = Logger
+}
+
+func NewLogger() *Log {
 	var err error
 	tm := time.Unix(0, time.Now().UnixNano())
 	timestr := tm.Format("2006-01-02_15-04-05")
 	filename := "migrate_log_" + timestr + ".log"
-	l := &Logger{
+	l := &Log{
 		logDir:  "./logs",
 		logName: filename,
 		debug:   false,
@@ -69,15 +77,15 @@ func NewLogger() *Logger {
 	return l
 }
 
-func (l *Logger) SetDebug() {
+func (l *Log) SetDebug() {
 	l.debug = true
 }
 
-func (l *Logger) IsDebug() bool {
+func (l *Log) IsDebug() bool {
 	return l.debug
 }
 
-func (l *Logger) LogString(str string, target int, level int) {
+func (l *Log) LogString(str string, target int, level int) {
 	if level == LEVEL_DEBUG {
 		if !l.debug {
 			return
@@ -96,12 +104,12 @@ func (l *Logger) LogString(str string, target int, level int) {
 	}
 }
 
-func (l *Logger) LogError(err error) {
+func (l *Log) LogError(err error) {
 	l.fileLogger.Println("ERROR: ", err.Error())
 	l.errorLogger.Println("ERROR: ", err)
 }
 
-func (l *Logger) close() {
+func (l *Log) Close() {
 	l.fileLogger = nil
 	l.fileWriter.Close()
 	l.consoleLogger = nil
