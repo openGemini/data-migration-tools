@@ -16,23 +16,22 @@ package main
 
 import (
 	"os"
+
+	"github.com/openGemini/dataMigrate/src"
 )
 
-var logger *Logger
-
 func main() {
-	logger = NewLogger()
-	defer logger.close()
-	logger.LogString("Data migrate tool starting", TOCONSOLE, LEVEL_INFO)
+	defer src.Logger.Close()
+	src.Logger.LogString("Data migrate tool starting", src.TOCONSOLE, src.LEVEL_INFO)
 	if err := Run(os.Args[1:]...); err != nil {
-		logger.LogError(err)
+		src.Logger.LogError(err)
 		os.Exit(1)
 	}
 }
 
 func Run(args ...string) error {
 	if len(args) > 0 {
-		cmd := NewDataMigrateCommand()
+		cmd := src.NewDataMigrateCommand()
 		if err := cmd.Run(args...); err != nil {
 			return err
 		}

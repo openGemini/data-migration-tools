@@ -11,7 +11,7 @@ Add insert values into openGemini
 copyright 2023 Huawei Cloud Computing Technologies Co., Ltd.
 */
 
-package main
+package src
 
 import (
 	"bytes"

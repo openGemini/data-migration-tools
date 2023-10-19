@@ -1,4 +1,4 @@
-package main
+package src
 
 import (
 	"fmt"
@@ -201,7 +201,8 @@ func (m *migrator) writeCurrentFiles() error {
 		if measurement, ok = m.mstCache.Get(series); !ok {
 			measurement, tags, err = splitMeasurementAndTag(series)
 			if err != nil {
-				return err
+				logger.LogString(fmt.Sprintf("split measurement name and tag from %s, err: %s", series, err), TOLOGFILE, LEVEL_ERROR)
+				continue
 			}
 			m.mstCache.Add(series, measurement)
 			m.tagsCache.Add(series, tags)
@@ -226,7 +227,7 @@ func (m *migrator) writeCurrentFiles() error {
 				key:    key,
 				seeks:  m.locations(key, m.startTime, m.endTime),
 			}
-			if err := newCursor.init(); err != nil {
+			if err = newCursor.init(); err != nil {
 				return err
 			}
 			scanner.fields[f] = newCursor
