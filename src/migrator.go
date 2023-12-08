@@ -15,6 +15,7 @@ type Migrator interface {
 	writeCurrentFiles() error
 	releaseTSMReaders()
 	getDatabase() string
+	getRetentionPolicy() string
 	getStat() *statInfo
 	getGStat() *globalStatInfo
 	getBatchSize() int
@@ -58,11 +59,12 @@ type statInfo struct {
 }
 
 type migrator struct {
-	out       string
-	database  string
-	startTime int64
-	endTime   int64
-	batchSize int
+	out             string
+	database        string
+	retentionPolicy string
+	startTime       int64
+	endTime         int64
+	batchSize       int
 
 	files *[]tsm1.TSMFile
 	// series to fields
@@ -94,23 +96,28 @@ func (m *migrator) getDatabase() string {
 	return m.database
 }
 
+func (m *migrator) getRetentionPolicy() string {
+	return m.retentionPolicy
+}
+
 func (m *migrator) getStat() *statInfo {
 	return m.stat
 }
 
-func NewMigrator(cmd *DataMigrateCommand) *migrator {
+func NewMigrator(cmd *DataMigrateCommand, info *shardGroupInfo) *migrator {
 	mig := &migrator{
-		out:        cmd.out,
-		database:   cmd.database,
-		startTime:  cmd.startTime,
-		endTime:    cmd.endTime,
-		files:      filesPool.Get().(*[]tsm1.TSMFile),
-		serieskeys: make(map[string]map[string]struct{}, 100),
-		stat:       statPool.Get().(*statInfo),
-		gstat:      cmd.gstat,
-		batchSize:  cmd.batchSize,
-		mstCache:   mstCachePool.Get().(*lru.Cache),
-		tagsCache:  tagsCachePool.Get().(*lru.Cache),
+		out:             cmd.opt.Out,
+		database:        info.db,
+		retentionPolicy: info.rp,
+		startTime:       cmd.opt.StartTime,
+		endTime:         cmd.opt.EndTime,
+		files:           filesPool.Get().(*[]tsm1.TSMFile),
+		serieskeys:      make(map[string]map[string]struct{}, 100),
+		stat:            statPool.Get().(*statInfo),
+		gstat:           cmd.gstat,
+		batchSize:       cmd.opt.BatchSize,
+		mstCache:        mstCachePool.Get().(*lru.Cache),
+		tagsCache:       tagsCachePool.Get().(*lru.Cache),
 	}
 	mig.stat.rowsRead = 0
 	mig.stat.tagsRead = make(map[string]struct{})

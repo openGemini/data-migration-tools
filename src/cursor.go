@@ -341,8 +341,9 @@ func (s *Scanner) writeBatches(c client.Client, cmd Migrator) error {
 	for {
 		if flag {
 			bp, _ = client.NewBatchPoints(client.BatchPointsConfig{
-				Database:  cmd.getDatabase(),
-				Precision: "ns",
+				Database:        cmd.getDatabase(),
+				RetentionPolicy: cmd.getRetentionPolicy(),
+				Precision:       "ns",
 			})
 			flag = false
 		}

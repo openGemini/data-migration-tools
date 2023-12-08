@@ -11,8 +11,7 @@ package src
 
 import (
 	"fmt"
-	"io/ioutil"
-	"math"
+	"io"
 	"math/rand"
 	"os"
 	"sort"
@@ -101,7 +100,11 @@ func Test_ReadTSMFile(t *testing.T) {
 	defer server.Close()
 
 	cmd := newCommand()
-	cmd.setOutput(server.URL)
+	cmd.opt.Out = strings.TrimPrefix(server.URL, "http://")
+	info := &shardGroupInfo{
+		db: "db0",
+		rp: "rp0",
+	}
 
 	for _, c := range []corpus{
 		basicCorpus,
@@ -112,7 +115,7 @@ func Test_ReadTSMFile(t *testing.T) {
 
 		filelist := []string{tsmFile.Name()}
 
-		mig := NewMigrator(cmd)
+		mig := NewMigrator(cmd, info)
 		if err := mig.migrateTsmFiles(filelist); err != nil {
 			t.Fatal(err)
 		}
@@ -120,7 +123,7 @@ func Test_ReadTSMFile(t *testing.T) {
 
 	// Missing .tsm file should not cause a failure.
 	filelist := []string{"file-that-does-not-exist.tsm"}
-	if err := NewMigrator(newCommand()).migrateTsmFiles(filelist); err != nil {
+	if err := NewMigrator(newCommand(), info).migrateTsmFiles(filelist); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -138,15 +141,17 @@ func TestEmptyMigrate(t *testing.T) {
 	defer server.Close()
 
 	cmd := newCommand()
-	cmd.startTime = 0
-	cmd.endTime = 0
-	cmd.setOutput(server.URL)
+	cmd.opt.Out = strings.TrimPrefix(server.URL, "http://")
+	info := &shardGroupInfo{
+		db: "db0",
+		rp: "rp0",
+	}
 
 	f := writeCorpusToTSMFile(makeFloatsCorpus(100, 250))
 	defer os.Remove(f.Name())
 
 	filelist := []string{f.Name()}
-	if err := NewMigrator(cmd).migrateTsmFiles(filelist); err != nil {
+	if err := NewMigrator(cmd, info).migrateTsmFiles(filelist); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -164,18 +169,23 @@ func benchmarkReadTSM(c corpus, b *testing.B) {
 	defer server.Close()
 
 	cmd := newCommand()
-	cmd.setOutput(server.URL)
+	cmd.opt.Out = strings.TrimPrefix(server.URL, "http://")
 	// Garbage collection is relatively likely to happen during export, so track allocations.
 	b.ReportAllocs()
 
 	f := writeCorpusToTSMFile(c)
 	defer os.Remove(f.Name())
 
+	info := &shardGroupInfo{
+		db: "db0",
+		rp: "rp0",
+	}
+
 	b.ResetTimer()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		filelist := []string{f.Name()}
-		if err := NewMigrator(cmd).migrateTsmFiles(filelist); err != nil {
+		if err := NewMigrator(cmd, info).migrateTsmFiles(filelist); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -199,13 +209,14 @@ func BenchmarkReadTSMStrings_100s_250vps(b *testing.B) {
 
 func newCommand() *DataMigrateCommand {
 	return &DataMigrateCommand{
-		Stderr:    ioutil.Discard,
-		Stdout:    ioutil.Discard,
-		manifest:  make([]fileGroupInfo, 0),
-		tsmFiles:  make(map[string][]string),
-		startTime: math.MinInt64,
-		endTime:   math.MaxInt64,
-		gstat:     &globalStatInfo{},
+		Stderr: io.Discard,
+		Stdout: io.Discard,
+
+		opt: &DataMigrateOptions{},
+
+		manifest: make([]fileGroupInfo, 0),
+		tsmFiles: make(map[string][]string),
+		gstat:    &globalStatInfo{},
 	}
 }
 
@@ -263,7 +274,7 @@ func makeStringsCorpus(numSeries, numStringsPerSeries int) corpus {
 	})
 }
 func writeCorpusToTSMFile(c corpus) *os.File {
-	tsmFile, err := ioutil.TempFile("", "export_test_corpus_tsm")
+	tsmFile, err := os.CreateTemp("", "export_test_corpus_tsm")
 	if err != nil {
 		panic(err)
 	}

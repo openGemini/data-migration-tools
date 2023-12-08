@@ -18,7 +18,7 @@ type geminiService struct {
 
 func NewGeminiService(cmd *DataMigrateCommand) *geminiService {
 	return &geminiService{
-		out: cmd.out,
+		out: cmd.opt.Out,
 	}
 }
 

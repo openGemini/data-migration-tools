@@ -15,26 +15,16 @@ limitations under the License.
 package main
 
 import (
-	"os"
-
+	"github.com/openGemini/dataMigrate/cmd"
 	"github.com/openGemini/dataMigrate/src"
+	"os"
 )
 
 func main() {
 	defer src.Logger.Close()
-	src.Logger.LogString("Data migrate tool starting", src.TOCONSOLE, src.LEVEL_INFO)
-	if err := Run(os.Args[1:]...); err != nil {
+	err := cmd.Execute()
+	if err != nil {
 		src.Logger.LogError(err)
 		os.Exit(1)
 	}
-}
-
-func Run(args ...string) error {
-	if len(args) > 0 {
-		cmd := src.NewDataMigrateCommand()
-		if err := cmd.Run(args...); err != nil {
-			return err
-		}
-	}
-	return nil
 }
