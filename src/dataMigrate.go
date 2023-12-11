@@ -16,14 +16,11 @@ package src
 import (
 	"bytes"
 	"context"
-	"flag"
 	"fmt"
-	"github.com/influxdata/influxdb/models"
-	"github.com/pkg/errors"
-	"go.uber.org/atomic"
-	"golang.org/x/sync/errgroup"
 	"io"
 	"math"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -33,10 +30,11 @@ import (
 	"sync"
 	"time"
 
-	"net/http"
-	_ "net/http/pprof"
-
+	"github.com/influxdata/influxdb/models"
 	"github.com/influxdata/influxdb/tsdb/engine/tsm1"
+	"github.com/pkg/errors"
+	"go.uber.org/atomic"
+	"golang.org/x/sync/errgroup"
 )
 
 // escape set for tags
@@ -82,13 +80,7 @@ type DataMigrateCommand struct {
 	Stderr io.Writer
 	Stdout io.Writer
 
-	dataDir         string
-	out             string
-	database        string
-	retentionPolicy string
-	startTime       int64
-	endTime         int64
-	batchSize       int
+	opt *DataMigrateOptions
 
 	manifest []fileGroupInfo
 	tsmFiles map[string][]string
@@ -99,10 +91,12 @@ type DataMigrateCommand struct {
 }
 
 // NewDataMigrateCommand returns a new instance of DataMigrateCommand.
-func NewDataMigrateCommand() *DataMigrateCommand {
+func NewDataMigrateCommand(opt *DataMigrateOptions) *DataMigrateCommand {
 	return &DataMigrateCommand{
 		Stderr: os.Stderr,
 		Stdout: os.Stdout,
+
+		opt: opt,
 
 		manifest:    make([]fileGroupInfo, 0),
 		tsmFiles:    make(map[string][]string),
@@ -112,68 +106,51 @@ func NewDataMigrateCommand() *DataMigrateCommand {
 }
 
 // Run executes the command.
-func (cmd *DataMigrateCommand) Run(args ...string) error {
-	var start, end string
-	var debug string
-	flag.StringVar(&cmd.dataDir, "from", "/var/lib/influxdb/data", "Data storage path")
-	flag.StringVar(&cmd.out, "to", "127.0.0.1:8086", "Destination host to write data to")
-	flag.StringVar(&cmd.database, "database", "", "Optional: the database to read")
-	flag.StringVar(&cmd.retentionPolicy, "retention", "", "Optional: the retention policy to read (requires -database)")
-	flag.StringVar(&start, "start", "", "Optional: the start time to read (RFC3339 format)")
-	flag.StringVar(&end, "end", "", "Optional: the end time to read (RFC3339 format)")
-	flag.StringVar(&debug, "mode", "", "Optional: whether to enable debug log or not")
-	flag.IntVar(&cmd.batchSize, "batch", 1000, "Optional: specify batch size for inserting lines")
-
-	flag.Usage = func() {
-		fmt.Fprintf(cmd.Stdout, "Reads TSM files into InfluxDB line protocol format and insert into openGemini\n\n")
-		fmt.Fprintf(cmd.Stdout, "Usage: %s [flags]\n\n", filepath.Base(os.Args[0]))
-		flag.PrintDefaults()
-	}
-
-	flag.Parse()
-
-	// write params to log
-	logger.LogString("Got param \"from\": "+cmd.dataDir, TOLOGFILE, LEVEL_INFO)
-	logger.LogString("Got param \"to\": "+cmd.out, TOLOGFILE, LEVEL_INFO)
-	logger.LogString("Got param \"database\": "+cmd.database, TOLOGFILE, LEVEL_INFO)
-	logger.LogString("Got param \"retention\": "+cmd.retentionPolicy, TOLOGFILE, LEVEL_INFO)
-	logger.LogString("Got param \"start\": "+start, TOLOGFILE, LEVEL_INFO)
-	logger.LogString("Got param \"end\": "+end, TOLOGFILE, LEVEL_INFO)
-	logger.LogString("Got param \"batch\": "+strconv.Itoa(cmd.batchSize), TOLOGFILE, LEVEL_INFO)
-
+func (cmd *DataMigrateCommand) Run() error {
 	// set defaults
-	if start != "" {
-		s, err := time.Parse(time.RFC3339, start)
+	if cmd.opt.Start != "" {
+		s, err := time.Parse(time.RFC3339, cmd.opt.Start)
 		if err != nil {
 			return err
 		}
-		cmd.startTime = s.UnixNano()
+		cmd.opt.StartTime = s.UnixNano()
 	} else {
-		cmd.startTime = math.MinInt64
+		cmd.opt.StartTime = math.MinInt64
 	}
-	if end != "" {
-		e, err := time.Parse(time.RFC3339, end)
+	if cmd.opt.End != "" {
+		e, err := time.Parse(time.RFC3339, cmd.opt.End)
 		if err != nil {
 			return err
 		}
-		cmd.endTime = e.UnixNano()
+		cmd.opt.EndTime = e.UnixNano()
 	} else {
 		// set end time to max if it is not set.
-		cmd.endTime = math.MaxInt64
+		cmd.opt.EndTime = math.MaxInt64
 	}
 
 	if err := cmd.validate(); err != nil {
 		return err
 	}
 
+	logger.LogString("Data migrate tool starting", TOCONSOLE, LEVEL_INFO)
+
+	// write params to log
+	logger.LogString("Got param \"from\": "+cmd.opt.DataDir, TOLOGFILE, LEVEL_INFO)
+	logger.LogString("Got param \"to\": "+cmd.opt.Out, TOLOGFILE, LEVEL_INFO)
+	logger.LogString("Got param \"database\": "+cmd.opt.Database, TOLOGFILE, LEVEL_INFO)
+	logger.LogString("Got param \"retention\": "+cmd.opt.RetentionPolicy, TOLOGFILE, LEVEL_INFO)
+	logger.LogString("Got param \"start\": "+cmd.opt.Start, TOLOGFILE, LEVEL_INFO)
+	logger.LogString("Got param \"end\": "+cmd.opt.End, TOLOGFILE, LEVEL_INFO)
+	logger.LogString("Got param \"batch\": "+strconv.Itoa(cmd.opt.BatchSize), TOLOGFILE, LEVEL_INFO)
+
 	gs := NewGeminiService(cmd)
-	shardGroupDuration, err := gs.GetShardGroupDuration(cmd.database, "autogen")
+	shardGroupDuration, err := gs.GetShardGroupDuration(cmd.opt.Database, "autogen")
 	if err != nil {
 		return err
 	}
 	cmd.shardGroupDuration = shardGroupDuration
 
-	if debug == "debug" || debug == "Debug" || debug == "DEBUG" {
+	if cmd.opt.Debug {
 		logger.SetDebug()
 		logger.LogString("Debug mode is enabled", TOCONSOLE|TOLOGFILE, LEVEL_DEBUG)
 	}
@@ -190,15 +167,15 @@ func (cmd *DataMigrateCommand) Run(args ...string) error {
 }
 
 func (cmd *DataMigrateCommand) setOutput(url string) {
-	cmd.out = strings.TrimPrefix(url, "http://")
+	cmd.opt.Out = strings.TrimPrefix(url, "http://")
 }
 
 // Check whether the parameters are valid or not.
 func (cmd *DataMigrateCommand) validate() error {
-	if cmd.retentionPolicy != "" && cmd.database == "" {
+	if cmd.opt.RetentionPolicy != "" && cmd.opt.Database == "" {
 		return fmt.Errorf("dataMigrate: must specify a db")
 	}
-	if cmd.startTime != 0 && cmd.endTime != 0 && cmd.endTime < cmd.startTime {
+	if cmd.opt.StartTime != 0 && cmd.opt.EndTime != 0 && cmd.opt.EndTime < cmd.opt.StartTime {
 		return fmt.Errorf("dataMigrate: end time before start time")
 	}
 	return nil
@@ -232,7 +209,7 @@ func (cmd *DataMigrateCommand) runMigrate() error {
 
 func (cmd *DataMigrateCommand) walkTSMFiles() error {
 	logger.LogString("Searching for tsm files to migrate", TOCONSOLE|TOLOGFILE, LEVEL_INFO)
-	err := filepath.Walk(cmd.dataDir, func(path string, f os.FileInfo, err error) error {
+	err := filepath.Walk(cmd.opt.DataDir, func(path string, f os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -241,7 +218,7 @@ func (cmd *DataMigrateCommand) walkTSMFiles() error {
 			return nil
 		}
 
-		relPath, err := filepath.Rel(cmd.dataDir, path)
+		relPath, err := filepath.Rel(cmd.opt.DataDir, path)
 		if err != nil {
 			return err
 		}
@@ -250,17 +227,16 @@ func (cmd *DataMigrateCommand) walkTSMFiles() error {
 			return fmt.Errorf("invalid directory structure for %s", path)
 		}
 
-		if dirs[0] == cmd.database || cmd.database == "" {
-			if dirs[1] == cmd.retentionPolicy || cmd.retentionPolicy == "" {
-				key := filepath.Join(dirs[0], dirs[1], dirs[2])
-				cmd.tsmFiles[key] = append(cmd.tsmFiles[key], path)
-				if len(cmd.tsmFiles[key]) == 1 {
-					cmd.manifest = append(cmd.manifest, fileGroupInfo{
-						db:  dirs[0],
-						rp:  dirs[1],
-						sid: dirs[2],
-					})
-				}
+		if (dirs[0] == cmd.opt.Database || cmd.opt.Database == "") &&
+			(dirs[1] == cmd.opt.RetentionPolicy || cmd.opt.RetentionPolicy == "") {
+			key := filepath.Join(dirs[0], dirs[1], dirs[2])
+			cmd.tsmFiles[key] = append(cmd.tsmFiles[key], path)
+			if len(cmd.tsmFiles[key]) == 1 {
+				cmd.manifest = append(cmd.manifest, fileGroupInfo{
+					db:  dirs[0],
+					rp:  dirs[1],
+					sid: dirs[2],
+				})
 			}
 		}
 		return nil
@@ -369,11 +345,11 @@ func (cmd *DataMigrateCommand) populateShardGroups() error {
 }
 
 func (cmd *DataMigrateCommand) doMigrate(ctx context.Context, info shardGroupInfo) error {
-	migrateShard := func(key string, files []string) error {
+	migrateShard := func(info *shardGroupInfo, key string, files []string) error {
 		logger.LogString(fmt.Sprintf("Writing out data from shard %v, [%d/%d]...", key, cmd.gstat.progress.Inc(), len(cmd.manifest)), TOCONSOLE|TOLOGFILE, LEVEL_INFO)
 		st := time.Now()
 
-		mig := NewMigrator(cmd)
+		mig := NewMigrator(cmd, info)
 		defer mig.release()
 		if err := mig.migrateTsmFiles(files); err != nil {
 			return err
@@ -394,7 +370,7 @@ func (cmd *DataMigrateCommand) doMigrate(ctx context.Context, info shardGroupInf
 		for _, sid := range info.sids {
 			key := filepath.Join(info.db, info.rp, sid)
 			if files, ok := cmd.tsmFiles[key]; ok {
-				if err := migrateShard(key, files); err != nil {
+				if err := migrateShard(&info, key, files); err != nil {
 					return errors.WithStack(err)
 				}
 			} else {
