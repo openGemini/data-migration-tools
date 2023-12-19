@@ -107,7 +107,7 @@ func (m *migrator) getStat() *statInfo {
 func NewMigrator(cmd *DataMigrateCommand, info *shardGroupInfo) *migrator {
 	mig := &migrator{
 		out:             cmd.opt.Out,
-		database:        info.db,
+		database:        cmd.opt.DestDatabase,
 		retentionPolicy: info.rp,
 		startTime:       cmd.opt.StartTime,
 		endTime:         cmd.opt.EndTime,

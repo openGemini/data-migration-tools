@@ -54,7 +54,7 @@ drwx------  4 root  root   128B 12  8 09:01 db1
 We migrate `internal` db
 
 ```bash
-> ./dataMigrate run --from /var/lib/influxdb/data --to ip:port --database _internal
+> ./dataMigrate run --from /var/lib/influxdb/data --to ip:port --database _internal --dest_database _internal
 
 2023/12/08 14:17:48 Data migrate tool starting
 2023/12/08 14:17:48 Debug mode is enabled
@@ -77,7 +77,7 @@ We migrate `internal` db
 ### example 2: Migrate the specified database
 
 ```bash
-> ./dataMigrate run --from /var/lib/influxdb/data --to ip:port --database db0
+> ./dataMigrate run --from /var/lib/influxdb/data --to ip:port --database db0 --dest_database db3
 
 2023/12/08 14:31:47 Data migrate tool starting
 2023/12/08 14:31:47 Debug mode is enabled
@@ -91,7 +91,7 @@ We migrate `internal` db
 ### example 3: Migrate the specified database with auth and https
 
 ```bash
-> ./dataMigrate run --from /var/lib/influxdb/data --to ip:port --database db0 \
+> ./dataMigrate run --from /var/lib/influxdb/data --to ip:port --database db0 --dest_database db0\
     --ssl --unsafeSsl --username rwusr --password This@123
 
 2023/12/08 14:31:47 Data migrate tool starting
@@ -113,19 +113,20 @@ Usage:
   run [flags]
 
 Flags:
-      --batch int          Optional: specify batch size for inserting lines (default 1000)
-      --database string    Optional: the database to read
-      --debug              Optional: whether to enable debug log or not
-      --end string         Optional: the end time to read (RFC3339 format)
-  -f, --from string        Influxdb Data storage path. See your influxdb config item: data.dir (default "/var/lib/influxdb/data")
-  -h, --help               help for run
-  -p, --password string    Optional: The password to connect to the openGemini cluster.
-      --retention string   Optional: the retention policy to read (required -database)
-      --ssl                Optional: Use https for requests.
-      --start string       Optional: the start time to read (RFC3339 format)
-  -t, --to string          Destination host to write data to (default "127.0.0.1:8086")
-      --unsafeSsl          Optional: Set this when connecting to the cluster using https and not use SSL verification.
-  -u, --username string    Optional: The username to connect to the openGemini cluster.
+      --batch int             Optional: specify batch size for inserting lines (default 1000)
+      --database string       The Source database to read
+      --dest_database string  Optional: the destination database to write, default use --database 
+      --debug                 Optional: whether to enable debug log or not
+      --end string            Optional: the end time to read (RFC3339 format)
+  -f, --from string           Influxdb Data storage path. See your influxdb config item: data.dir (default "/var/lib/influxdb/data")
+  -h, --help                  help for run
+  -p, --password string       Optional: The password to connect to the openGemini cluster.
+      --retention string      Optional: the retention policy to read (required -database)
+      --ssl                   Optional: Use https for requests.
+      --start string          Optional: the start time to read (RFC3339 format)
+  -t, --to string             Destination host to write data to (default "127.0.0.1:8086")
+      --unsafeSsl             Optional: Set this when connecting to the cluster using https and not use SSL verification.
+  -u, --username string       Optional: The username to connect to the openGemini cluster.
 ```
 
 **Welcome to add more features.**
