@@ -51,10 +51,10 @@ drwx------  4 root  root   128B 12  6 14:59 db0
 drwx------  4 root  root   128B 12  8 09:01 db1
 ```
 
-We migrate `internal` db
+We migrate all database
 
 ```bash
-> ./dataMigrate run --from /var/lib/influxdb/data --to ip:port --database _internal
+> ./dataMigrate run --from /var/lib/influxdb/data --to ip:port
 
 2023/12/08 14:17:48 Data migrate tool starting
 2023/12/08 14:17:48 Debug mode is enabled
@@ -103,6 +103,21 @@ We migrate `internal` db
 2023/12/08 14:31:47 Total: takes 48.502792ms to migrate, with 1 tags, 2 fields, 2 rows read.
 ```
 
+### example 4: Migrate the specified database and destDatabase
+
+```
+> ./dataMigrate run --from /var/lib/influxdb/data --to ip:port --database db0 --destDatabase db3
+
+2023/12/08 14:31:47 Data migrate tool starting
+2023/12/08 14:31:47 Debug mode is enabled
+2023/12/08 14:31:47 Searching for tsm files to migrate
+2023/12/08 14:31:47 Writing out data from shard db0/autogen/2, [1/1]...
+2023/12/08 14:31:47 Dealing file: /Users/shilinlee/.influxdb/data/db0/autogen/2/000000001-000000001.tsm
+2023/12/08 14:31:47 Shard db0/autogen/2 takes 45.883209ms to migrate, with 1 tags, 2 fields, 2 rows read
+2023/12/08 14:31:47 Total: takes 48.502792ms to migrate, with 1 tags, 2 fields, 2 rows read.
+```
+
+
 
 ## For more help
 
@@ -113,19 +128,20 @@ Usage:
   run [flags]
 
 Flags:
-      --batch int          Optional: specify batch size for inserting lines (default 1000)
-      --database string    Optional: the database to read
-      --debug              Optional: whether to enable debug log or not
-      --end string         Optional: the end time to read (RFC3339 format)
-  -f, --from string        Influxdb Data storage path. See your influxdb config item: data.dir (default "/var/lib/influxdb/data")
-  -h, --help               help for run
-  -p, --password string    Optional: The password to connect to the openGemini cluster.
-      --retention string   Optional: the retention policy to read (required -database)
-      --ssl                Optional: Use https for requests.
-      --start string       Optional: the start time to read (RFC3339 format)
-  -t, --to string          Destination host to write data to (default "127.0.0.1:8086")
-      --unsafeSsl          Optional: Set this when connecting to the cluster using https and not use SSL verification.
-  -u, --username string    Optional: The username to connect to the openGemini cluster.
+      --batch int             Optional: specify batch size for inserting lines (default 1000)
+      --database string       Optional: The Source database to read
+      --dest_database string  Optional: the destination database to write, default use --database 
+      --debug                 Optional: whether to enable debug log or not
+      --end string            Optional: the end time to read (RFC3339 format)
+  -f, --from string           Influxdb Data storage path. See your influxdb config item: data.dir (default "/var/lib/influxdb/data")
+  -h, --help                  help for run
+  -p, --password string       Optional: The password to connect to the openGemini cluster.
+      --retention string      Optional: the retention policy to read (required -database)
+      --ssl                   Optional: Use https for requests.
+      --start string          Optional: the start time to read (RFC3339 format)
+  -t, --to string             Destination host to write data to (default "127.0.0.1:8086")
+      --unsafeSsl             Optional: Set this when connecting to the cluster using https and not use SSL verification.
+  -u, --username string       Optional: The username to connect to the openGemini cluster.
 ```
 
 **Welcome to add more features.**

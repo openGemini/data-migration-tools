@@ -105,9 +105,15 @@ func (m *migrator) getStat() *statInfo {
 }
 
 func NewMigrator(cmd *DataMigrateCommand, info *shardGroupInfo) *migrator {
+	var db string
+	if cmd.opt.DestDatabase == "" {
+		db = info.db
+	} else {
+		db = cmd.opt.DestDatabase
+	}
 	mig := &migrator{
 		out:             cmd.opt.Out,
-		database:        info.db,
+		database:        db,
 		retentionPolicy: info.rp,
 		startTime:       cmd.opt.StartTime,
 		endTime:         cmd.opt.EndTime,
