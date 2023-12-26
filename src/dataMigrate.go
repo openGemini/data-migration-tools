@@ -138,13 +138,18 @@ func (cmd *DataMigrateCommand) Run() error {
 	logger.LogString("Got param \"from\": "+cmd.opt.DataDir, TOLOGFILE, LEVEL_INFO)
 	logger.LogString("Got param \"to\": "+cmd.opt.Out, TOLOGFILE, LEVEL_INFO)
 	logger.LogString("Got param \"database\": "+cmd.opt.Database, TOLOGFILE, LEVEL_INFO)
+	logger.LogString("Got param \"dest_database\": "+cmd.opt.DestDatabase, TOLOGFILE, LEVEL_INFO)
 	logger.LogString("Got param \"retention\": "+cmd.opt.RetentionPolicy, TOLOGFILE, LEVEL_INFO)
 	logger.LogString("Got param \"start\": "+cmd.opt.Start, TOLOGFILE, LEVEL_INFO)
 	logger.LogString("Got param \"end\": "+cmd.opt.End, TOLOGFILE, LEVEL_INFO)
 	logger.LogString("Got param \"batch\": "+strconv.Itoa(cmd.opt.BatchSize), TOLOGFILE, LEVEL_INFO)
 
 	gs := NewGeminiService(cmd)
-	shardGroupDuration, err := gs.GetShardGroupDuration(cmd.opt.Database, "autogen")
+	db := cmd.opt.Database
+	if cmd.opt.DestDatabase != "" {
+		db = cmd.opt.DestDatabase
+	}
+	shardGroupDuration, err := gs.GetShardGroupDuration(db)
 	if err != nil {
 		return err
 	}
@@ -174,6 +179,9 @@ func (cmd *DataMigrateCommand) setOutput(url string) {
 func (cmd *DataMigrateCommand) validate() error {
 	if cmd.opt.RetentionPolicy != "" && cmd.opt.Database == "" {
 		return fmt.Errorf("dataMigrate: must specify a db")
+	}
+	if cmd.opt.DestDatabase == "" {
+		cmd.opt.DestDatabase = cmd.opt.Database
 	}
 	if cmd.opt.StartTime != 0 && cmd.opt.EndTime != 0 && cmd.opt.EndTime < cmd.opt.StartTime {
 		return fmt.Errorf("dataMigrate: end time before start time")

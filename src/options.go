@@ -6,6 +6,7 @@ type DataMigrateOptions struct {
 	Username        string
 	Password        string
 	Database        string
+	DestDatabase    string
 	RetentionPolicy string
 	Start           string // rfc3339 format
 	End             string // rfc3339 format

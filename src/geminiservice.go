@@ -7,7 +7,7 @@ import (
 )
 
 type GeminiService interface {
-	GetShardGroupDuration(database, rp string) (time.Duration, error)
+	GetShardGroupDuration(database string) (time.Duration, error)
 }
 
 var _ GeminiService = (*geminiService)(nil)
@@ -22,7 +22,7 @@ func NewGeminiService(cmd *DataMigrateCommand) *geminiService {
 	}
 }
 
-func (g *geminiService) GetShardGroupDuration(database, rp string) (time.Duration, error) {
+func (g *geminiService) GetShardGroupDuration(database string) (time.Duration, error) {
 	c, err := client.NewHTTPClient(client.HTTPConfig{
 		Addr: "http://" + g.out,
 	})
@@ -48,7 +48,7 @@ func (g *geminiService) GetShardGroupDuration(database, rp string) (time.Duratio
 	for _, item := range resp.Results {
 		for _, item1 := range item.Series {
 			for _, row := range item1.Values {
-				if row[0] == rp {
+				if row[7] == "true" {
 					shardGroupDuration, _ = time.ParseDuration(row[2].(string))
 					break
 				}
