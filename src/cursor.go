@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/influxdata/influxdb/tsdb/engine/tsm1"
@@ -380,6 +381,10 @@ func (s *Scanner) retryWrite(c client.Client, bp client.BatchPoints) {
 			break
 		}
 		logger.LogString("insert error: "+err.Error(), TOLOGFILE|TOCONSOLE, LEVEL_ERROR)
+		if strings.Contains(err.Error(), "point time is expired") {
+			logger.LogString("point time is expired : Skiped", TOLOGFILE|TOCONSOLE, LEVEL_ERROR)
+			break
+		}
 		points := bp.Points()
 		if len(points) > 0 {
 			logger.LogString("retry for points like:"+points[0].String(), TOLOGFILE|TOCONSOLE, LEVEL_ERROR)
