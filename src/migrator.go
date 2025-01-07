@@ -2,12 +2,13 @@ package src
 
 import (
 	"fmt"
-	"github.com/golang/groupcache/lru"
-	"github.com/influxdata/influxdb/tsdb/engine/tsm1"
-	client "github.com/influxdata/influxdb1-client/v2"
 	"os"
 	"sort"
 	"sync"
+
+	"github.com/golang/groupcache/lru"
+	"github.com/influxdata/influxdb/tsdb/engine/tsm1"
+	client "github.com/influxdata/influxdb1-client/v2"
 )
 
 type Migrator interface {
@@ -65,6 +66,9 @@ type migrator struct {
 	startTime       int64
 	endTime         int64
 	batchSize       int
+	userName        string
+	password        string
+	useSsl          bool
 
 	files *[]tsm1.TSMFile
 	// series to fields
@@ -124,6 +128,9 @@ func NewMigrator(cmd *DataMigrateCommand, info *shardGroupInfo) *migrator {
 		batchSize:       cmd.opt.BatchSize,
 		mstCache:        mstCachePool.Get().(*lru.Cache),
 		tagsCache:       tagsCachePool.Get().(*lru.Cache),
+		userName:        cmd.opt.Username,
+		password:        cmd.opt.Password,
+		useSsl:          cmd.opt.Ssl,
 	}
 	mig.stat.rowsRead = 0
 	mig.stat.tagsRead = make(map[string]struct{})
@@ -195,11 +202,22 @@ func (m *migrator) releaseTSMReaders() {
 	}
 }
 
+func (m *migrator) getToAddr() string {
+	addr := fmt.Sprintf("http://%s", m.out)
+	if m.useSsl {
+		addr = fmt.Sprintf("https://%s", m.out)
+	}
+	return addr
+}
+
 func (m *migrator) writeCurrentFiles() error {
 	defer m.releaseTSMReaders()
 
 	c, err := client.NewHTTPClient(client.HTTPConfig{
-		Addr: "http://" + m.out,
+		InsecureSkipVerify: true,
+		Addr:               m.getToAddr(),
+		Username:           m.userName,
+		Password:           m.password,
 	})
 	if err != nil {
 		logger.LogString("Error creating openGemini Client: "+err.Error(), TOLOGFILE|TOCONSOLE, LEVEL_ERROR)
