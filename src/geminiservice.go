@@ -1,9 +1,11 @@
 package src
 
 import (
+	"fmt"
+	"time"
+
 	client "github.com/influxdata/influxdb1-client/v2"
 	"github.com/pkg/errors"
-	"time"
 )
 
 type GeminiService interface {
@@ -13,18 +15,33 @@ type GeminiService interface {
 var _ GeminiService = (*geminiService)(nil)
 
 type geminiService struct {
-	out string
+	out      string
+	username string
+	password string
+	useSsl   bool
 }
 
 func NewGeminiService(cmd *DataMigrateCommand) *geminiService {
 	return &geminiService{
-		out: cmd.opt.Out,
+		out:      cmd.opt.Out,
+		username: cmd.opt.Username,
+		password: cmd.opt.Password,
+		useSsl:   cmd.opt.Ssl,
 	}
+}
+
+func (g *geminiService) getUrl() string {
+	url := fmt.Sprintf("http://%s", g.out)
+	if g.useSsl {
+		url = fmt.Sprintf("https://%s", g.out)
+	}
+	return url
 }
 
 func (g *geminiService) GetShardGroupDuration(database string) (time.Duration, error) {
 	c, err := client.NewHTTPClient(client.HTTPConfig{
-		Addr: "http://" + g.out,
+		Addr:               g.getUrl(),
+		InsecureSkipVerify: true,
 	})
 	if err != nil {
 		return 0, errors.WithStack(err)
